@@ -73,6 +73,10 @@ const Cases = (() => {
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"/></svg>
             匯入CSV
           </button>
+          <button class="btn btn-outline btn-sm" id="btn-batch-add">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM14 11a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1z"/></svg>
+            批次新增
+          </button>
           <button class="btn btn-primary btn-sm" id="btn-add-case">
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
             新增病例
@@ -114,6 +118,7 @@ const Cases = (() => {
     `;
 
     document.getElementById('btn-add-case').addEventListener('click', () => openAddEditModal());
+    document.getElementById('btn-batch-add').addEventListener('click', openBatchModal);
     document.getElementById('btn-import-csv').addEventListener('click', openImportModal);
     document.getElementById('search-input').addEventListener('input', applyFilters);
     document.getElementById('filter-method').addEventListener('change', applyFilters);
@@ -320,7 +325,7 @@ const Cases = (() => {
           <input class="form-input" type="date" id="f-date" value="${defaultDate}">
         </div>
         <div class="form-group">
-          <label class="form-label">病例號<span class="required">*</span></label>
+          <label class="form-label">病例號</label>
           <div style="display:flex;gap:6px">
             <input class="form-input" id="f-case-no" placeholder="e.g. 003013132J">
             <button class="btn btn-outline btn-sm btn-icon" id="btn-scan" title="掃描條碼">
@@ -489,7 +494,6 @@ const Cases = (() => {
   async function saveCase() {
     const caseData = buildCaseFromForm();
     if (!caseData.date) { showToast('請填寫日期', 'warning'); return; }
-    if (!caseData.case_no) { showToast('請填寫病例號', 'warning'); return; }
 
     const targetYM = caseData.date.substring(0, 7);
 
@@ -528,6 +532,288 @@ const Cases = (() => {
       await loadCases();
     } catch (err) {
       showToast('刪除失敗: ' + err.message, 'error');
+    }
+  }
+
+  // ========================
+  // BATCH ADD
+  // ========================
+  let _batchRows = [];
+  let _batchRowId = 0;
+
+  async function openBatchModal() {
+    _batchRows = [];
+    _batchRowId = 0;
+    if (_pointSettings.length === 0) _pointSettings = await db.getPointSettings();
+
+    const ym = _currentYM;
+    const [y, m] = ym.split('-');
+    const now = new Date();
+    const nowYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const defaultDate = (nowYM === ym)
+      ? now.toISOString().split('T')[0]
+      : `${y}-${m}-01`;
+
+    const html = `
+      <!-- Shared settings -->
+      <div style="background:var(--bg-elevated);border-radius:8px;padding:14px 16px;margin-bottom:14px">
+        <div style="font-size:11px;color:var(--text-muted);font-weight:500;letter-spacing:.04em;text-transform:uppercase;margin-bottom:10px">共用設定</div>
+        <div style="display:grid;grid-template-columns:160px 100px 1fr 1fr;gap:10px;align-items:end">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">日期<span class="required">*</span></label>
+            <input class="form-input" type="date" id="bf-date" value="${defaultDate}" onchange="Cases._batchRefreshAll()">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">ASA</label>
+            <select class="form-select" id="bf-asa">
+              <option value="1">1</option><option value="2" selected>2</option>
+              <option value="3">3</option><option value="4">4</option>
+              <option value="1E">1E</option><option value="2E">2E</option>
+              <option value="3E">3E</option><option value="4E">4E</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">加成</label>
+            <select class="form-select" id="bf-bonus" onchange="Cases._batchRefreshAll()">
+              ${Calculator.BONUS_TYPES.map(b => `<option value="${b}">${b}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">交接班</label>
+            <select class="form-select" id="bf-handover" onchange="Cases._batchRefreshAll()">
+              ${Calculator.HANDOVER_OPTIONS.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick-add strip -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--bg-elevated);border-radius:6px;font-size:12px">
+        <span style="color:var(--text-muted);flex-shrink:0">快速新增</span>
+        <input id="bf-quick-n" type="number" min="1" max="20" value="3" class="form-input" style="width:56px;padding:4px 8px;font-size:12px">
+        <span style="color:var(--text-muted);flex-shrink:0">筆</span>
+        <select id="bf-quick-method" class="form-select" style="width:110px;font-size:12px">
+          ${Calculator.METHODS.map(m => `<option value="${m}" ${m==='C+G'?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <span style="color:var(--text-muted);flex-shrink:0">各</span>
+        <input id="bf-quick-dur" type="number" min="1" value="30" class="form-input" style="width:60px;padding:4px 8px;font-size:12px">
+        <span style="color:var(--text-muted);flex-shrink:0">分</span>
+        <button class="btn btn-outline btn-sm" onclick="Cases._quickAddRows()">新增</button>
+      </div>
+
+      <!-- Rows table -->
+      <div class="table-wrap" style="max-height:340px;overflow-y:auto">
+        <table id="batch-table" style="table-layout:fixed">
+          <colgroup>
+            <col style="width:120px"><col style="width:80px"><col style="width:140px"><col style="width:46px"><col style="width:72px"><col style="width:30px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>麻醉方式</th>
+              <th>時間(min)</th>
+              <th>病例號（選填）</th>
+              <th style="text-align:center">附加</th>
+              <th style="text-align:right">績效點數</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="batch-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Footer strip -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px">
+        <button class="btn btn-outline btn-sm" onclick="Cases._addBatchRow()">
+          <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
+          手動新增一筆
+        </button>
+        <div id="batch-summary" style="font-size:12px;color:var(--text-muted)"></div>
+      </div>
+    `;
+
+    showModal('batch-modal', '批次新增病例', html, [
+      { label: '取消', cls: 'btn-outline', action: 'close' },
+      { label: '全部儲存', cls: 'btn-primary', action: 'save-batch' },
+    ], 'modal-xl');
+
+    _renderBatchRows();
+  }
+
+  function _addBatchRow(method, duration) {
+    const lastMethod = _batchRows.length > 0 ? _batchRows[_batchRows.length - 1].method : 'C+G';
+    _batchRows.push({
+      id: ++_batchRowId,
+      method: method || lastMethod,
+      duration: duration || 30,
+      case_no: '',
+      expanded: false,
+      extras: {},
+    });
+    _renderBatchRows();
+  }
+
+  function _quickAddRows() {
+    const n = Math.max(1, Math.min(20, Number(document.getElementById('bf-quick-n')?.value) || 3));
+    const method = document.getElementById('bf-quick-method')?.value || 'C+G';
+    const duration = Number(document.getElementById('bf-quick-dur')?.value) || 30;
+    for (let i = 0; i < n; i++) _addBatchRow(method, duration);
+  }
+
+  function _removeBatchRow(id) {
+    _batchRows = _batchRows.filter(r => r.id !== id);
+    _renderBatchRows();
+  }
+
+  function _toggleBatchExtras(id) {
+    const row = _batchRows.find(r => r.id === id);
+    if (row) { row.expanded = !row.expanded; _renderBatchRows(); }
+  }
+
+  function _batchUpdateRow(id, field, value) {
+    const row = _batchRows.find(r => r.id === id);
+    if (row) { row[field] = value; _renderBatchRows(); }
+  }
+
+  function _batchUpdateExtra(id, key, value) {
+    const row = _batchRows.find(r => r.id === id);
+    if (row) { row.extras[key] = Number(value); _renderBatchRows(); }
+  }
+
+  function _batchRefreshAll() { _renderBatchRows(); }
+
+  function _renderBatchRows() {
+    const tbody = document.getElementById('batch-tbody');
+    if (!tbody) return;
+
+    const sharedBonus    = document.getElementById('bf-bonus')?.value || '無';
+    const sharedHandover = Number(document.getElementById('bf-handover')?.value || 1);
+    const sharedDate     = document.getElementById('bf-date')?.value || (_currentYM + '-01');
+    const ym             = sharedDate.substring(0, 7);
+
+    let totalPts = 0;
+    const rows = _batchRows.map(row => {
+      const tempCase = { method: row.method, duration: row.duration, bonus: sharedBonus, handover: sharedHandover, PCA_days: 0, ...row.extras };
+      const pts = Calculator.calculateTotal(tempCase, _pointSettings);
+      totalPts += pts;
+
+      const hasExtras = Object.values(row.extras).some(v => Number(v) > 0);
+      const extrasRowHtml = row.expanded ? `
+        <tr style="background:var(--bg-base)">
+          <td colspan="6" style="padding:8px 10px 10px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">附加項目</div>
+            <div class="checkbox-grid" style="gap:5px 12px;grid-template-columns:repeat(auto-fill,minmax(110px,1fr))">
+              ${Calculator.EXTRAS_META.filter(e => e.type === 'check').map(e => `
+                <label class="checkbox-item" style="font-size:11px">
+                  <input type="checkbox" ${Number(row.extras[e.key]) > 0 ? 'checked' : ''}
+                         onchange="Cases._batchUpdateExtra(${row.id},'${e.key}',this.checked?1:0)">
+                  <span>${e.label}</span>
+                </label>`).join('')}
+            </div>
+            <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+              <label style="font-size:11px;color:var(--text-secondary)">PCA加做天</label>
+              <input class="form-input" type="number" min="0" style="width:58px;padding:3px 8px;font-size:12px"
+                     value="${row.extras.PCA_days || 0}"
+                     onchange="Cases._batchUpdateExtra(${row.id},'PCA_days',this.value)">
+            </div>
+          </td>
+        </tr>` : '';
+
+      return `
+        <tr id="brow-${row.id}">
+          <td>
+            <select class="form-select" style="font-size:12px;width:100%"
+                    onchange="Cases._batchUpdateRow(${row.id},'method',this.value)">
+              ${Calculator.METHODS.map(m => `<option value="${m}" ${m === row.method ? 'selected' : ''}>${m}</option>`).join('')}
+            </select>
+          </td>
+          <td>
+            <input class="form-input" type="number" min="0" style="font-size:12px;width:100%"
+                   value="${row.duration}"
+                   onchange="Cases._batchUpdateRow(${row.id},'duration',Number(this.value))">
+          </td>
+          <td>
+            <input class="form-input" type="text" style="font-size:12px;width:100%" placeholder="選填"
+                   value="${escHtml(row.case_no)}"
+                   onchange="Cases._batchUpdateRow(${row.id},'case_no',this.value)">
+          </td>
+          <td style="text-align:center">
+            <button class="btn btn-ghost btn-sm btn-icon" title="附加項目"
+                    style="${hasExtras ? 'color:var(--accent)' : 'color:var(--text-muted)'}"
+                    onclick="Cases._toggleBatchExtras(${row.id})">
+              ${hasExtras
+                ? `<svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>`
+                : `<svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>`}
+            </button>
+          </td>
+          <td style="text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--accent)">
+            ${pts.toLocaleString('zh-TW',{maximumFractionDigits:1})}
+          </td>
+          <td style="text-align:center">
+            <button class="btn btn-ghost btn-icon btn-sm" style="color:var(--red)" onclick="Cases._removeBatchRow(${row.id})">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            </button>
+          </td>
+        </tr>
+        ${extrasRowHtml}`;
+    }).join('');
+
+    tbody.innerHTML = rows || `
+      <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px">
+        尚無病例，請使用快速新增或手動新增一筆
+      </td></tr>`;
+
+    const summary = document.getElementById('batch-summary');
+    if (summary) {
+      summary.innerHTML = _batchRows.length > 0
+        ? `共 <strong style="color:var(--text-primary)">${_batchRows.length}</strong> 筆 &nbsp;·&nbsp; 合計 <strong style="color:var(--accent)">${totalPts.toLocaleString('zh-TW',{maximumFractionDigits:1})}</strong> 點`
+        : '';
+    }
+  }
+
+  async function saveBatch() {
+    if (_batchRows.length === 0) { showToast('請至少新增一筆病例', 'warning'); return; }
+
+    const date     = document.getElementById('bf-date')?.value || '';
+    const asa      = document.getElementById('bf-asa')?.value || '2';
+    const bonus    = document.getElementById('bf-bonus')?.value || '無';
+    const handover = Number(document.getElementById('bf-handover')?.value || 1);
+
+    if (!date) { showToast('請填寫日期', 'warning'); return; }
+    const targetYM = date.substring(0, 7);
+
+    const newCases = _batchRows.map(row => {
+      const caseData = {
+        id: GitHubDB.generateId(),
+        date,
+        case_no:   row.case_no || '',
+        diagnosis: '',
+        asa,
+        bonus,
+        method:    row.method,
+        handover,
+        duration:  row.duration,
+        notes:     '',
+        PCA_days:  row.extras.PCA_days || 0,
+        ...Object.fromEntries(
+          Calculator.EXTRAS_META.filter(e => e.type === 'check').map(e => [e.key, Number(row.extras[e.key] || 0)])
+        ),
+      };
+      const settings = Calculator.getApplicableSettings(targetYM, _pointSettings);
+      caseData.base_points = settings ? Calculator.calculateBasePerformance(caseData.method, caseData.duration, settings) : 0;
+      caseData.total_performance = Calculator.calculateTotal(caseData, _pointSettings);
+      return caseData;
+    });
+
+    try {
+      showToast('儲存中...', 'info');
+      const existing = await db.getCases(targetYM);
+      await db.saveCases(targetYM, [...existing, ...newCases]);
+      closeModal('batch-modal');
+      showToast(`已新增 ${newCases.length} 筆病例`, 'success');
+      _currentYM = AppState.selectedMonth;
+      await loadCases();
+    } catch (err) {
+      showToast('儲存失敗: ' + err.message, 'error');
     }
   }
 
@@ -681,5 +967,15 @@ const Cases = (() => {
     saveCase,
     doImport,
     stopScanner,
+    // Batch add
+    openBatchModal,
+    saveBatch,
+    _addBatchRow,
+    _quickAddRows,
+    _removeBatchRow,
+    _toggleBatchExtras,
+    _batchUpdateRow,
+    _batchUpdateExtra,
+    _batchRefreshAll,
   };
 })();

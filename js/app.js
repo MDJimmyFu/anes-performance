@@ -200,6 +200,7 @@ function showModal(id, title, bodyHtml, buttons = [], extraClass = '') {
     let onclick = '';
     if (b.action === 'close') onclick = `closeModal('${id}')`;
     else if (b.action === 'save-case') onclick = `Cases.saveCase()`;
+    else if (b.action === 'save-batch') onclick = `Cases.saveBatch()`;
     else if (b.action === 'do-import') onclick = `Cases.doImport()`;
     else if (b.action === 'save-ps') onclick = `PointSettings.savePeriod()`;
     else if (b.action === 'close-scanner') onclick = `Cases.stopScanner(); closeModal('${id}')`;
