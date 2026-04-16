@@ -1,0 +1,7 @@
+{
+  "app_name": "麻醉績效管理系統",
+  "version": "1.0.0",
+  "default_branch": "main",
+  "cases_path": "data/cases",
+  "point_settings_path": "data/point_settings.json"
+}
