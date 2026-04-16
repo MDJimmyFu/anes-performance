@@ -1,72 +1,49 @@
 /**
  * billing.js
  * HIS Billing Verification Page
- * Connects to http://10.10.52.65:5000/anesthesia_billing (hospital intranet)
- * Requires login before querying. Login state persisted in sessionStorage.
+ * Connects to http://10.10.52.65:5000 (hospital intranet Flask server)
+ *
+ * Auth:  POST /login  { username, password }  →  302 redirect on success
+ * Data:  POST /api/batch_anesthesia_billing  { hhistnums:[], query_date:"YYYY-MM-DD" }
+ *        Response: [{ hhistnum, date, method, total_time, self_pay:[{code,name}], ... }]
  */
 
 const Billing = (() => {
-  const HIS_BASE = 'http://10.10.52.65:5000';
-  const BILLING_ENDPOINT = `${HIS_BASE}/anesthesia_billing`;
+  const HIS_BASE         = 'http://10.10.52.65:5000';
   const LOGIN_ENDPOINT   = `${HIS_BASE}/login`;
+  const API_ENDPOINT     = `${HIS_BASE}/api/batch_anesthesia_billing`;
   const SESSION_KEY      = 'his_logged_in';
   const USERNAME_KEY     = 'his_username';
 
-  // Fields to compare between stored case and HIS response
+  // Fields we can meaningfully compare with the HIS response.
+  // hisKey matches the keys returned by /api/batch_anesthesia_billing.
   const COMPARE_FIELDS = [
-    { key: 'method',       hisKey: 'anesthesia_type',  label: '麻醉方式' },
-    { key: 'duration',     hisKey: 'duration_min',      label: '麻醉時間(min)' },
-    { key: 'bonus',        hisKey: 'bonus_type',        label: '加成' },
-    { key: 'handover',     hisKey: 'handover_ratio',    label: '交接班' },
-    { key: 'GVL_AWS_MAC',  hisKey: 'GVL_AWS_MAC',       label: 'GVL/AWS/MAC' },
-    { key: 'Rusch_Video',  hisKey: 'Rusch_Video',       label: 'Rusch+Video' },
-    { key: 'OMT',          hisKey: 'OMT',               label: 'OMT' },
-    { key: 'A_line',       hisKey: 'A_line',            label: 'A-line' },
-    { key: 'CVC',          hisKey: 'CVC',               label: 'CVC' },
-    { key: 'PAC',          hisKey: 'PAC',               label: 'PAC' },
-    { key: 'TEE',          hisKey: 'TEE',               label: 'TEE' },
-    { key: 'CO',           hisKey: 'CO',                label: 'CO' },
-    { key: 'Optiflow',     hisKey: 'Optiflow',          label: 'Optiflow' },
-    { key: 'BIS_self',     hisKey: 'BIS_self',          label: 'BIS自費' },
-    { key: 'BIS_NHI_adult',hisKey: 'BIS_NHI_adult',    label: 'BIS健保成人' },
-    { key: 'BIS_NHI_child',hisKey: 'BIS_NHI_child',    label: 'BIS健保小兒' },
-    { key: 'blanket',      hisKey: 'blanket',           label: '溫毯' },
-    { key: 'IVPCA',        hisKey: 'IVPCA',             label: 'IVPCA' },
-    { key: 'NBPCA',        hisKey: 'NBPCA',             label: 'NBPCA' },
-    { key: 'PCEA',         hisKey: 'PCEA',              label: 'PCEA' },
-    { key: 'PCA_days',     hisKey: 'PCA_days',          label: 'PCA加做天' },
-    { key: 'IV_sedation',  hisKey: 'IV_sedation',       label: 'IV Sedation' },
-    { key: 'ultrasound',   hisKey: 'ultrasound',        label: '超音波導引' },
-    { key: 'ByBIS',        hisKey: 'ByBIS',             label: 'ByBIS' },
+    { key: 'method',   hisKey: 'method',     label: '麻醉方式' },
+    { key: 'duration', hisKey: 'total_time', label: '麻醉時間(min)' },
   ];
 
-  let _cases = [];
+  let _cases         = [];
   let _pointSettings = [];
-  let _results = {};
-  let _networkOk = null;
+  let _results       = {};   // keyed by case id: { status, hisData, diffs }
+  let _networkOk     = null;
 
   // ========================
   // LOGIN STATE
   // ========================
-  function isLoggedIn() {
-    return sessionStorage.getItem(SESSION_KEY) === '1';
-  }
+  function isLoggedIn() { return sessionStorage.getItem(SESSION_KEY) === '1'; }
 
   function setLoggedIn(username) {
     sessionStorage.setItem(SESSION_KEY, '1');
     localStorage.setItem(USERNAME_KEY, username);
   }
 
-  function clearLogin() {
-    sessionStorage.removeItem(SESSION_KEY);
-  }
+  function clearLogin() { sessionStorage.removeItem(SESSION_KEY); }
 
   // ========================
   // PAGE INIT
   // ========================
   async function init() {
-    const content = document.getElementById('content');
-    content.innerHTML = `
+    document.getElementById('content').innerHTML = `
       <div class="page-fade-in">
         <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
           <div>
@@ -109,7 +86,7 @@ const Billing = (() => {
 
           ${errorMsg ? `
             <div class="notice notice-error" style="margin-bottom:16px;padding:10px 14px;font-size:13px">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" style="flex-shrink:0">
                 <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
               </svg>
               ${escHtml(errorMsg)}
@@ -133,19 +110,15 @@ const Billing = (() => {
 
           <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border-subtle)">
             <div style="font-size:11px;color:var(--text-muted);text-align:center">
-              此功能僅限院內網路使用。若無法連線，請確認您已連接醫院 Wi-Fi 或 VPN。
+              此功能僅限院內網路使用。請確認您已連接醫院 Wi-Fi 或 VPN。
             </div>
           </div>
         </div>
       </div>`;
 
-    // Focus password if username already filled
     setTimeout(() => {
-      if (savedUsername) {
-        document.getElementById('his-password')?.focus();
-      } else {
-        document.getElementById('his-username')?.focus();
-      }
+      if (savedUsername) document.getElementById('his-password')?.focus();
+      else document.getElementById('his-username')?.focus();
     }, 50);
   }
 
@@ -154,17 +127,10 @@ const Billing = (() => {
     const username = document.getElementById('his-username')?.value?.trim() || '';
     const password = document.getElementById('his-password')?.value || '';
     const btn = document.getElementById('login-btn');
-
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = '登入中...';
-    }
+    if (btn) { btn.disabled = true; btn.textContent = '登入中...'; }
 
     try {
-      const body = new URLSearchParams();
-      body.append('username', username);
-      body.append('password', password);
-
+      const body = new URLSearchParams({ username, password });
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
       let resp;
@@ -175,18 +141,25 @@ const Billing = (() => {
           body: body.toString(),
           credentials: 'include',
           signal: controller.signal,
+          // fetch follows redirect by default; resp.redirected === true when login succeeds
         });
       } finally {
         clearTimeout(timeout);
       }
 
-      if (resp.ok) {
+      // Server returns 302 → browser follows → resp.redirected is true if we ended up elsewhere
+      const loginSucceeded = resp.redirected || !resp.url.includes('/login');
+
+      if (loginSucceeded) {
         setLoggedIn(username);
         await showBillingContent();
       } else {
-        const msg = resp.status === 401
-          ? '帳號或密碼錯誤，請重試'
-          : `登入失敗 (HTTP ${resp.status})`;
+        // Read response body to extract error message from login.html
+        let msg = '帳號或密碼錯誤，請重試';
+        try {
+          const html = await resp.text();
+          if (html.includes('帳號或密碼錯誤')) msg = '帳號或密碼錯誤，請重新輸入';
+        } catch {}
         renderLoginForm(msg);
       }
     } catch (e) {
@@ -209,16 +182,14 @@ const Billing = (() => {
   // ========================
   async function showBillingContent() {
     const username = localStorage.getItem(USERNAME_KEY) || '';
-
-    // Set topbar actions
     const topbar = document.getElementById('topbar-actions');
     if (topbar) {
       topbar.innerHTML = `
         <div id="network-status" class="network-badge network-checking">
-          <span class="status-dot"></span> 檢查網路中...
+          <span class="status-dot"></span> 檢查連線中...
         </div>
-        <button class="btn btn-outline btn-sm" onclick="Billing.checkNetwork()">重新連線</button>
-        <button class="btn btn-ghost btn-sm" onclick="Billing.logout()" title="登出 HIS 系統"
+        <button class="btn btn-outline btn-sm" onclick="Billing.checkNetwork()">重新檢查</button>
+        <button class="btn btn-ghost btn-sm" onclick="Billing.logout()"
                 style="color:var(--text-muted);font-size:12px">
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" style="margin-right:4px">
             <path fill-rule="evenodd" d="M3 3a1 1 0 011 1v12a1 1 0 11-2 0V4a1 1 0 011-1zm7.707 3.293a1 1 0 010 1.414L9.414 9H17a1 1 0 110 2H9.414l1.293 1.293a1 1 0 01-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0z" clip-rule="evenodd"/>
@@ -228,7 +199,6 @@ const Billing = (() => {
     }
 
     document.getElementById('billing-body').innerHTML = `
-      <!-- Network check detail panel -->
       <div id="network-detail-panel" style="margin-bottom:16px;display:none">
         <div class="card" style="padding:16px">
           <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;font-weight:500">連線診斷</div>
@@ -236,7 +206,6 @@ const Billing = (() => {
         </div>
       </div>
 
-      <!-- Batch query bar -->
       <div class="billing-toolbar" id="billing-toolbar" style="display:none">
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <span style="color:var(--text-secondary);font-size:13px">
@@ -250,7 +219,6 @@ const Billing = (() => {
         </div>
       </div>
 
-      <!-- Network offline notice -->
       <div id="offline-notice" class="notice notice-warning" style="display:none">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
         <div>
@@ -259,10 +227,8 @@ const Billing = (() => {
         </div>
       </div>
 
-      <!-- Results table -->
       <div id="billing-results"></div>`;
 
-    // Load data
     try {
       _pointSettings = await db.getPointSettings();
       _cases = await db.getCases(AppState.selectedMonth);
@@ -276,55 +242,56 @@ const Billing = (() => {
   }
 
   // ========================
-  // NETWORK CHECK (step-by-step)
+  // NETWORK CHECK — 4 steps
   // ========================
   async function checkNetwork() {
-    const badge = document.getElementById('network-status');
-    const panel = document.getElementById('network-detail-panel');
-    const stepsEl = document.getElementById('network-steps');
-    const offlineNotice = document.getElementById('offline-notice');
-    const toolbar = document.getElementById('billing-toolbar');
+    const badge        = document.getElementById('network-status');
+    const panel        = document.getElementById('network-detail-panel');
+    const stepsEl      = document.getElementById('network-steps');
+    const officeNotice = document.getElementById('offline-notice');
+    const toolbar      = document.getElementById('billing-toolbar');
 
     if (!badge) return;
-
-    // Show checking state
     badge.className = 'network-badge network-checking';
     badge.innerHTML = '<span class="status-dot"></span> 檢查連線中...';
-
     if (panel) panel.style.display = 'block';
 
     const steps = [
-      { id: 'step-internet', label: '測試網際網路連線' },
-      { id: 'step-host',     label: `連接院內主機 (${HIS_BASE.replace('http://', '')})` },
-      { id: 'step-service',  label: '驗證 HIS 計費服務' },
-      { id: 'step-session',  label: '確認登入工作階段' },
+      { label: '測試網際網路連線' },
+      { label: `連接院內主機 (${HIS_BASE.replace('http://', '')})` },
+      { label: '讀取 HIS 登入頁面' },
+      { label: '確認登入工作階段' },
     ];
 
-    function renderSteps(states) {
+    const states = ['pending','pending','pending','pending'];
+
+    function render() {
       if (!stepsEl) return;
       stepsEl.innerHTML = steps.map((s, i) => {
         const st = states[i] || 'pending';
         const icon = {
-          pending: `<span style="color:var(--text-muted);font-size:14px">○</span>`,
-          running: `<span class="dot-pulse-sm" style="display:inline-flex;gap:2px"></span>`,
-          ok:      `<span style="color:var(--accent);font-size:14px">✓</span>`,
-          warn:    `<span style="color:var(--amber);font-size:14px">⚠</span>`,
-          error:   `<span style="color:var(--red);font-size:14px">✗</span>`,
+          pending: `<span style="color:var(--text-muted);font-size:14px;line-height:1">○</span>`,
+          running: `<span style="display:inline-flex;gap:3px;align-items:center">${[0,1,2].map(() =>
+            `<span style="width:4px;height:4px;border-radius:50%;background:var(--accent);animation:pulse 1s infinite"></span>`
+          ).join('')}</span>`,
+          ok:    `<span style="color:var(--accent);font-size:14px">✓</span>`,
+          warn:  `<span style="color:var(--amber);font-size:14px">⚠</span>`,
+          error: `<span style="color:var(--red);font-size:14px">✗</span>`,
         }[st] || '';
-        const color = { ok: 'var(--accent)', warn: 'var(--amber)', error: 'var(--red)' }[st] || 'var(--text-muted)';
-        return `
-          <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--border-subtle);font-size:12px" id="${s.id}">
-            <div style="width:20px;text-align:center;flex-shrink:0">${icon}</div>
-            <div style="color:${color}">${escHtml(s.label)}</div>
-          </div>`;
+        const color = { ok:'var(--accent)', warn:'var(--amber)', error:'var(--red)' }[st] || 'var(--text-muted)';
+        const msg   = s.msg ? ` <span style="color:var(--text-muted);font-size:11px">— ${escHtml(s.msg)}</span>` : '';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;
+                             border-bottom:1px solid var(--border-subtle);font-size:12px">
+          <div style="width:20px;text-align:center;flex-shrink:0">${icon}</div>
+          <div style="color:${color}">${escHtml(s.label)}${msg}</div>
+        </div>`;
       }).join('');
     }
 
-    const states = ['pending','pending','pending','pending'];
-    renderSteps(states);
+    render();
 
-    // Step 1: Internet connectivity
-    states[0] = 'running'; renderSteps(states);
+    // ── Step 1: Internet ──────────────────────────────────────────────────────
+    states[0] = 'running'; render();
     let internetOk = false;
     try {
       const ctrl = new AbortController();
@@ -334,10 +301,11 @@ const Billing = (() => {
       internetOk = r.ok || r.type === 'opaque';
     } catch {}
     states[0] = internetOk ? 'ok' : 'warn';
-    renderSteps(states);
+    steps[0].msg = internetOk ? '' : '網際網路連線異常（仍可嘗試院內連線）';
+    render();
 
-    // Step 2: Reach HIS host (no-cors)
-    states[1] = 'running'; renderSteps(states);
+    // ── Step 2: Host reachable (no-cors ping) ─────────────────────────────────
+    states[1] = 'running'; render();
     let hostOk = false;
     try {
       const ctrl = new AbortController();
@@ -347,87 +315,99 @@ const Billing = (() => {
       hostOk = true;
     } catch {}
     states[1] = hostOk ? 'ok' : 'error';
-    renderSteps(states);
+    steps[1].msg = hostOk ? '' : '主機不可達，請確認院內網路連線';
+    render();
 
     if (!hostOk) {
       states[2] = 'error'; states[3] = 'error';
-      renderSteps(states);
+      steps[2].msg = '跳過'; steps[3].msg = '跳過';
+      render();
       _networkOk = false;
-      finalizeNetworkUI(false, badge, offlineNotice, toolbar);
+      _finalizeNetwork(false, badge, officeNotice, toolbar);
       return;
     }
 
-    // Step 3: Verify billing service responds
-    states[2] = 'running'; renderSteps(states);
-    let serviceOk = false;
+    // ── Step 3: Read login page (verifies CORS + service running) ─────────────
+    states[2] = 'running'; render();
+    let pageOk = false;
+    let corsOk = false;
     try {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 5000);
-      // A HEAD or GET to the billing endpoint; we expect JSON or 401 (both mean service is up)
-      const r = await fetch(`${BILLING_ENDPOINT}?date=probe&case_no=probe`, {
+      const t = setTimeout(() => ctrl.abort(), 6000);
+      const r = await fetch(LOGIN_ENDPOINT, {
         signal: ctrl.signal,
         credentials: 'include',
-        headers: { 'Accept': 'application/json' },
+        headers: { 'Accept': 'text/html,application/json' },
       });
       clearTimeout(t);
-      // 200, 401, 403, 404 all mean the service is up
-      serviceOk = r.status < 500;
-    } catch {}
-    states[2] = serviceOk ? 'ok' : 'warn';
-    renderSteps(states);
+      if (r.ok) {
+        pageOk = true;
+        corsOk = true;
+      } else {
+        // Got a response but non-200 — service is up, check if it's a CORS issue
+        pageOk = r.status < 500;
+        corsOk = true; // If we got here, CORS must be working
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        // Likely a CORS or mixed-content error — host is reachable but browser blocks the read
+        pageOk = false;
+        corsOk = false;
+      }
+    }
+    states[2] = pageOk ? 'ok' : corsOk ? 'warn' : 'error';
+    steps[2].msg = pageOk ? ''
+      : corsOk ? '服務回應異常'
+      : '無法讀取頁面，伺服器可能缺少 CORS 設定';
+    render();
 
-    // Step 4: Check login session
-    states[3] = 'running'; renderSteps(states);
-    const sessionValid = isLoggedIn();
-    states[3] = sessionValid ? 'ok' : 'warn';
-    renderSteps(states);
+    // ── Step 4: Session status ────────────────────────────────────────────────
+    states[3] = isLoggedIn() ? 'ok' : 'warn';
+    steps[3].msg = isLoggedIn() ? '' : '尚未登入';
+    render();
 
-    _networkOk = hostOk && serviceOk;
-    finalizeNetworkUI(_networkOk, badge, offlineNotice, toolbar);
+    _networkOk = hostOk && pageOk;
+    _finalizeNetwork(_networkOk, badge, officeNotice, toolbar);
   }
 
-  function finalizeNetworkUI(ok, badge, offlineNotice, toolbar) {
+  function _finalizeNetwork(ok, badge, officeNotice, toolbar) {
     if (ok) {
-      if (badge) {
-        badge.className = 'network-badge network-online';
-        badge.innerHTML = '<span class="status-dot"></span> 院內網路已連線';
-      }
-      if (offlineNotice) offlineNotice.style.display = 'none';
+      badge.className = 'network-badge network-online';
+      badge.innerHTML = '<span class="status-dot"></span> 院內網路已連線';
+      if (officeNotice) officeNotice.style.display = 'none';
       if (toolbar) toolbar.style.display = 'flex';
       renderCasesTable();
     } else {
-      if (badge) {
-        badge.className = 'network-badge network-offline';
-        badge.innerHTML = '<span class="status-dot"></span> 無法連線院內系統';
-      }
-      if (offlineNotice) offlineNotice.style.display = 'flex';
+      badge.className = 'network-badge network-offline';
+      badge.innerHTML = '<span class="status-dot"></span> 無法連線院內系統';
+      if (officeNotice) officeNotice.style.display = 'flex';
       if (toolbar) toolbar.style.display = 'none';
       renderCasesTable(true);
     }
   }
 
   // ========================
-  // RENDER CASES TABLE
+  // CASES TABLE
   // ========================
   function renderCasesTable(offlineMode = false) {
     const container = document.getElementById('billing-results');
     if (!container) return;
 
     const validCases = _cases.filter(c => c.case_no && c.case_no.trim());
-
     if (validCases.length === 0) {
       container.innerHTML = `<div class="empty-state"><p>本月（${AppState.selectedMonth}）沒有有效病例號的記錄</p></div>`;
       return;
     }
 
     const rows = validCases.map(c => {
-      const r = _results[c.id];
+      const r   = _results[c.id];
       const pts = Calculator.calculateTotal(c, _pointSettings);
 
       let statusCell = `<span class="verify-badge verify-pending">待查詢</span>`;
       if (r) {
         if (r.status === 'loading') statusCell = `<span class="verify-badge verify-loading">查詢中...</span>`;
         else if (r.status === 'error') statusCell = `<span class="verify-badge verify-error" title="${escHtml(r.error)}">查詢失敗</span>`;
+        else if (r.status === 'notfound') statusCell = `<span class="verify-badge verify-pending">HIS無記錄</span>`;
         else if (r.status === 'ok') {
           const hasDiff = r.diffs && r.diffs.length > 0;
           statusCell = hasDiff
@@ -445,19 +425,22 @@ const Billing = (() => {
         <tr id="row-${c.id}">
           <td class="mono" style="font-size:12px">${escHtml(c.date || '')}</td>
           <td class="mono" style="font-size:12px">${escHtml(c.case_no || '')}</td>
-          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${escHtml(c.diagnosis || '')}">${escHtml(c.diagnosis || '')}</td>
+          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
+              title="${escHtml(c.diagnosis || '')}">${escHtml(c.diagnosis || '')}</td>
           <td>${methodBadge(c.method || '')}</td>
           <td class="mono text-right">${c.duration || 0}</td>
-          <td class="mono text-right" style="color:var(--accent)">${pts.toLocaleString('zh-TW', {maximumFractionDigits:1})}</td>
+          <td class="mono text-right" style="color:var(--accent)">${pts.toLocaleString('zh-TW',{maximumFractionDigits:1})}</td>
           <td>${statusCell}</td>
           <td>
             <div style="display:flex;gap:6px;align-items:center">
               ${queryBtn}
-              ${r && r.status === 'ok' && r.diffs && r.diffs.length > 0 ?
-                `<button class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px" onclick="Billing.showDiff('${c.id}')">查看差異</button>
-                 <button class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 8px" onclick="Billing.applyHISData('${c.id}')">套用HIS</button>` : ''}
-              ${r && r.status === 'ok' && (!r.diffs || r.diffs.length === 0) ?
-                `<span style="color:var(--accent);font-size:11px">✓</span>` : ''}
+              ${r?.status === 'ok' && r.diffs?.length > 0
+                ? `<button class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px"
+                           onclick="Billing.showDiff('${c.id}')">查看差異</button>
+                   <button class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 8px"
+                           onclick="Billing.applyHISData('${c.id}')">套用HIS</button>` : ''}
+              ${r?.status === 'ok' && !r.diffs?.length
+                ? `<span style="color:var(--accent);font-size:11px">✓</span>` : ''}
             </div>
           </td>
         </tr>`;
@@ -468,37 +451,34 @@ const Billing = (() => {
         <table>
           <thead>
             <tr>
-              <th>日期</th>
-              <th>病例號</th>
-              <th>診斷/術式</th>
-              <th>麻醉方式</th>
-              <th class="text-right">時間(min)</th>
-              <th class="text-right">績效點數</th>
-              <th>核對狀態</th>
-              <th>操作</th>
+              <th>日期</th><th>病例號</th><th>診斷/術式</th><th>麻醉方式</th>
+              <th class="text-right">時間(min)</th><th class="text-right">績效點數</th>
+              <th>核對狀態</th><th>操作</th>
             </tr>
           </thead>
-          <tbody id="billing-tbody">
-            ${rows}
-          </tbody>
+          <tbody id="billing-tbody">${rows}</tbody>
         </table>
       </div>`;
   }
 
   // ========================
-  // QUERY SINGLE CASE
+  // QUERY SINGLE
   // ========================
   async function querySingle(caseId) {
     const c = _cases.find(x => x.id === caseId);
-    if (!c) return;
+    if (!c || !c.case_no) return;
 
     _results[caseId] = { status: 'loading' };
     updateRowStatus(caseId);
 
     try {
-      const hisData = await fetchHISBilling(c.date, c.case_no);
-      const diffs = compareCaseWithHIS(c, hisData);
-      _results[caseId] = { status: 'ok', hisData, diffs };
+      const hisData = await fetchHISRecord(c.case_no, c.date);
+      if (!hisData) {
+        _results[caseId] = { status: 'notfound' };
+      } else {
+        const diffs = compareCaseWithHIS(c, hisData);
+        _results[caseId] = { status: 'ok', hisData, diffs };
+      }
     } catch (e) {
       _results[caseId] = { status: 'error', error: e.message };
     }
@@ -512,54 +492,89 @@ const Billing = (() => {
   async function queryAll() {
     const validCases = _cases.filter(c => c.case_no && c.case_no.trim());
     const progressEl = document.getElementById('batch-progress');
+    if (validCases.length === 0) return;
 
-    for (let i = 0; i < validCases.length; i++) {
-      const c = validCases[i];
-      if (progressEl) progressEl.textContent = `查詢中 ${i + 1} / ${validCases.length}...`;
+    // Gather unique case numbers
+    const hhistnums = [...new Set(validCases.map(c => c.case_no.trim()))];
+    if (progressEl) progressEl.textContent = `批次查詢 ${hhistnums.length} 個病歷號...`;
 
+    // Mark all as loading
+    for (const c of validCases) {
       _results[c.id] = { status: 'loading' };
       updateRowStatus(c.id);
-
-      try {
-        const hisData = await fetchHISBilling(c.date, c.case_no);
-        const diffs = compareCaseWithHIS(c, hisData);
-        _results[c.id] = { status: 'ok', hisData, diffs };
-      } catch (e) {
-        _results[c.id] = { status: 'error', error: e.message };
-      }
-
-      updateRowStatus(c.id);
-      if (i < validCases.length - 1) await sleep(200);
     }
 
-    if (progressEl) {
-      const diffs = Object.values(_results).filter(r => r.status === 'ok' && r.diffs && r.diffs.length > 0).length;
+    try {
+      // Single batch POST to the HIS API
+      const allHisRecords = await fetchHISBatch(hhistnums);
+
+      // Match each stored case to its HIS record(s) by case_no + date
+      for (const c of validCases) {
+        const match = allHisRecords.find(r =>
+          r.hhistnum === c.case_no.trim() && r.date === c.date
+        );
+        if (!match) {
+          _results[c.id] = { status: 'notfound' };
+        } else {
+          const diffs = compareCaseWithHIS(c, match);
+          _results[c.id] = { status: 'ok', hisData: match, diffs };
+        }
+        updateRowStatus(c.id);
+      }
+
+      const diffs  = Object.values(_results).filter(r => r.status === 'ok' && r.diffs?.length).length;
       const errors = Object.values(_results).filter(r => r.status === 'error').length;
-      progressEl.textContent = `完成 — ${validCases.length} 筆，${diffs} 筆有差異，${errors} 筆查詢失敗`;
+      const notfound = Object.values(_results).filter(r => r.status === 'notfound').length;
+      if (progressEl) progressEl.textContent =
+        `完成 — ${validCases.length} 筆，${diffs} 筆有差異，${notfound} 筆HIS無記錄，${errors} 筆失敗`;
+
+    } catch (e) {
+      for (const c of validCases) {
+        if (_results[c.id]?.status === 'loading') {
+          _results[c.id] = { status: 'error', error: e.message };
+          updateRowStatus(c.id);
+        }
+      }
+      if (progressEl) progressEl.textContent = `查詢失敗：${e.message}`;
     }
   }
 
   // ========================
-  // HIS API CALL
+  // HIS API CALLS
   // ========================
-  async function fetchHISBilling(date, caseNo) {
-    const url = `${BILLING_ENDPOINT}?date=${encodeURIComponent(date)}&case_no=${encodeURIComponent(caseNo)}`;
+
+  /** POST /api/batch_anesthesia_billing for a single case, filtered by date */
+  async function fetchHISRecord(caseNo, date) {
+    const results = await fetchHISBatch([caseNo], date);
+    // The server filters by exact date when query_date is provided
+    return results.find(r => r.hhistnum === caseNo) || null;
+  }
+
+  /** POST /api/batch_anesthesia_billing for multiple case numbers */
+  async function fetchHISBatch(hhistnums, queryDate = null) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
     let resp;
     try {
-      resp = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
+      resp = await fetch(API_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         credentials: 'include',
+        signal: controller.signal,
+        body: JSON.stringify({
+          hhistnums,
+          query_date: queryDate || null,
+        }),
       });
     } finally {
       clearTimeout(timeout);
     }
 
     if (resp.status === 401 || resp.status === 403) {
-      // Session expired — clear login state and prompt re-login
       clearLogin();
       showToast('登入工作階段已過期，請重新登入', 'warning');
       renderLoginForm('登入工作階段已過期，請重新登入');
@@ -568,54 +583,32 @@ const Billing = (() => {
 
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-    const contentType = resp.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) return await resp.json();
-
-    const text = await resp.text();
-    try { return JSON.parse(text); } catch {
-      return parseHISHtml(text, date, caseNo);
-    }
-  }
-
-  function parseHISHtml(html, date, caseNo) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const result = { raw_html: true, date, case_no: caseNo };
-    doc.querySelectorAll('tr').forEach(row => {
-      const cells = [...row.querySelectorAll('td,th')].map(c => c.textContent.trim());
-      if (cells.length >= 2) {
-        const key = cells[0]; const val = cells[1];
-        if (key.includes('麻醉方式') || key.includes('anesthesia_type')) result.anesthesia_type = val;
-        if (key.includes('時間') || key.includes('duration'))            result.duration_min = parseFloat(val) || null;
-        if (key.includes('加成') || key.includes('bonus'))               result.bonus_type = val;
-        if (key.includes('交接班') || key.includes('handover'))          result.handover_ratio = parseFloat(val) || null;
-      }
-    });
-    return result;
+    const data = await resp.json();
+    if (data?.error) throw new Error(data.error);
+    return Array.isArray(data) ? data : [];
   }
 
   // ========================
-  // COMPARE CASE WITH HIS
+  // COMPARE
   // ========================
-  function compareCaseWithHIS(storedCase, hisData) {
-    if (!hisData || hisData.raw_html) return [];
+  function compareCaseWithHIS(storedCase, hisRecord) {
+    if (!hisRecord) return [];
     const diffs = [];
     for (const field of COMPARE_FIELDS) {
-      const storedVal = storedCase[field.key];
-      const hisVal = hisData[field.hisKey];
-      if (hisVal === undefined || hisVal === null) continue;
+      const sv = storedCase[field.key];
+      const hv = hisRecord[field.hisKey];
+      if (hv === undefined || hv === null) continue;
       const norm = v => (v === null || v === undefined) ? 0 : v;
-      const sv = norm(storedVal); const hv = norm(hisVal);
-      const isDiff = typeof sv === 'number' && typeof hv === 'number'
-        ? Math.abs(sv - hv) > 0.01
-        : String(sv) !== String(hv);
-      if (isDiff) diffs.push({ label: field.label, stored: storedVal, his: hisVal });
+      const isDiff = typeof norm(sv) === 'number' && typeof norm(hv) === 'number'
+        ? Math.abs(norm(sv) - norm(hv)) > 0.01
+        : String(sv ?? '') !== String(hv ?? '');
+      if (isDiff) diffs.push({ label: field.label, stored: sv, his: hv });
     }
     return diffs;
   }
 
   // ========================
-  // UPDATE SINGLE ROW UI
+  // UPDATE ROW UI
   // ========================
   function updateRowStatus(caseId) {
     const c = _cases.find(x => x.id === caseId);
@@ -623,25 +616,27 @@ const Billing = (() => {
     const row = document.getElementById(`row-${caseId}`);
     if (!row) return;
 
-    const r = _results[caseId];
+    const r   = _results[caseId];
     const pts = Calculator.calculateTotal(c, _pointSettings);
 
     let statusCell = `<span class="verify-badge verify-pending">待查詢</span>`;
     if (r) {
-      if (r.status === 'loading') statusCell = `<span class="verify-badge verify-loading"><span class="dot-pulse-sm"></span> 查詢中</span>`;
-      else if (r.status === 'error') statusCell = `<span class="verify-badge verify-error" title="${escHtml(r.error)}">查詢失敗</span>`;
-      else if (r.status === 'ok') {
-        const hasDiff = r.diffs && r.diffs.length > 0;
-        statusCell = hasDiff
+      if (r.status === 'loading')  statusCell = `<span class="verify-badge verify-loading">查詢中...</span>`;
+      if (r.status === 'notfound') statusCell = `<span class="verify-badge verify-pending">HIS無記錄</span>`;
+      if (r.status === 'error')    statusCell = `<span class="verify-badge verify-error" title="${escHtml(r.error)}">查詢失敗</span>`;
+      if (r.status === 'ok') {
+        statusCell = r.diffs?.length
           ? `<span class="verify-badge verify-diff">有差異 (${r.diffs.length}項)</span>`
           : `<span class="verify-badge verify-match">✓ 相符</span>`;
       }
     }
 
-    const actionBtns = r && r.status === 'ok' && r.diffs && r.diffs.length > 0
-      ? `<button class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px" onclick="Billing.showDiff('${c.id}')">查看差異</button>
-         <button class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 8px" onclick="Billing.applyHISData('${c.id}')">套用HIS</button>`
-      : r && r.status === 'ok' && (!r.diffs || r.diffs.length === 0)
+    const actionBtns = r?.status === 'ok' && r.diffs?.length
+      ? `<button class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px"
+                 onclick="Billing.showDiff('${c.id}')">查看差異</button>
+         <button class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 8px"
+                 onclick="Billing.applyHISData('${c.id}')">套用HIS</button>`
+      : r?.status === 'ok' && !r.diffs?.length
         ? `<span style="color:var(--accent);font-size:11px">✓</span>` : '';
 
     const queryBtn = _networkOk
@@ -652,17 +647,13 @@ const Billing = (() => {
     row.innerHTML = `
       <td class="mono" style="font-size:12px">${escHtml(c.date || '')}</td>
       <td class="mono" style="font-size:12px">${escHtml(c.case_no || '')}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${escHtml(c.diagnosis || '')}">${escHtml(c.diagnosis || '')}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
+          title="${escHtml(c.diagnosis || '')}">${escHtml(c.diagnosis || '')}</td>
       <td>${methodBadge(c.method || '')}</td>
       <td class="mono text-right">${c.duration || 0}</td>
-      <td class="mono text-right" style="color:var(--accent)">${pts.toLocaleString('zh-TW', {maximumFractionDigits:1})}</td>
+      <td class="mono text-right" style="color:var(--accent)">${pts.toLocaleString('zh-TW',{maximumFractionDigits:1})}</td>
       <td>${statusCell}</td>
-      <td>
-        <div style="display:flex;gap:6px;align-items:center">
-          ${queryBtn}
-          ${actionBtns}
-        </div>
-      </td>`;
+      <td><div style="display:flex;gap:6px;align-items:center">${queryBtn}${actionBtns}</div></td>`;
   }
 
   // ========================
@@ -671,56 +662,61 @@ const Billing = (() => {
   function showDiff(caseId) {
     const c = _cases.find(x => x.id === caseId);
     const r = _results[caseId];
-    if (!c || !r || !r.diffs) return;
+    if (!c || !r?.hisData) return;
 
-    const allFields = COMPARE_FIELDS.filter(f => {
-      const hisVal = r.hisData[f.hisKey];
-      return hisVal !== undefined && hisVal !== null;
-    });
-
-    const rows = allFields.map(f => {
-      const stored = c[f.key];
-      const his = r.hisData[f.hisKey];
-      const diff = r.diffs.find(d => d.label === f.label);
-      const style = diff ? 'background:rgba(218,54,51,0.1);' : '';
-      const diffIcon = diff
-        ? '<span style="color:var(--red);margin-left:4px;font-weight:700">⚠</span>'
+    // Comparison rows for method + duration
+    const compRows = COMPARE_FIELDS.map(f => {
+      const sv   = c[f.key];
+      const hv   = r.hisData[f.hisKey];
+      if (hv === undefined || hv === null) return '';
+      const diff = r.diffs?.find(d => d.label === f.label);
+      const style = diff ? 'background:rgba(218,54,51,0.08);' : '';
+      const icon  = diff
+        ? '<span style="color:var(--red);font-weight:700">⚠</span>'
         : '<span style="color:var(--accent)">✓</span>';
       return `
         <tr style="${style}">
           <td style="font-size:12px">${escHtml(f.label)}</td>
-          <td class="mono" style="font-size:12px;color:${diff ? 'var(--amber)' : 'var(--text-primary)'}">${escHtml(String(stored ?? '—'))}</td>
-          <td class="mono" style="font-size:12px;color:${diff ? 'var(--red)' : 'var(--accent)'}">${escHtml(String(his ?? '—'))}</td>
-          <td style="text-align:center">${diffIcon}</td>
+          <td class="mono" style="font-size:12px;color:${diff ? 'var(--amber)':'var(--text-primary)'}">${escHtml(String(sv ?? '—'))}</td>
+          <td class="mono" style="font-size:12px;color:${diff ? 'var(--red)':'var(--accent)'}">${escHtml(String(hv ?? '—'))}</td>
+          <td style="text-align:center">${icon}</td>
         </tr>`;
-    }).join('');
+    }).filter(Boolean).join('');
+
+    // Self-pay items from HIS
+    const selfPayHtml = r.hisData.self_pay?.length
+      ? `<div class="section-title" style="margin-top:16px">HIS 自費項目</div>
+         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+           ${r.hisData.self_pay.map(item =>
+             `<span class="badge badge-orange" title="${escHtml(item.code)}">${escHtml(item.name || item.code)}</span>`
+           ).join('')}
+         </div>`
+      : `<div style="margin-top:12px;font-size:12px;color:var(--text-muted)">HIS 無自費項目記錄</div>`;
 
     const html = `
       <div style="margin-bottom:12px;padding:10px;background:var(--bg-elevated);border-radius:6px;font-size:13px">
         <strong>${escHtml(c.case_no)}</strong> &nbsp;·&nbsp; ${escHtml(c.date)} &nbsp;·&nbsp; ${escHtml(c.diagnosis || '')}
+        ${r.hisData.patient_name ? `&nbsp;·&nbsp; <span style="color:var(--text-muted)">${escHtml(r.hisData.patient_name)}</span>` : ''}
       </div>
-      ${r.diffs.length === 0
-        ? '<p style="color:var(--accent);text-align:center;padding:20px">所有欄位與HIS相符 ✓</p>'
-        : `<div class="notice notice-error" style="margin-bottom:12px">
-             共 <strong>${r.diffs.length}</strong> 個欄位與HIS計費資料有差異，以紅色標示
-           </div>`}
-      <div class="table-wrap" style="max-height:380px;overflow-y:auto">
+      ${r.diffs?.length
+        ? `<div class="notice notice-error" style="margin-bottom:12px">
+             共 <strong>${r.diffs.length}</strong> 個欄位與 HIS 計費資料有差異，以紅色標示
+           </div>`
+        : '<p style="color:var(--accent);text-align:center;padding:12px 0">所有欄位與 HIS 相符 ✓</p>'}
+      <div class="table-wrap">
         <table style="font-size:12px">
-          <thead>
-            <tr>
-              <th>欄位</th><th>系統存儲值</th><th>HIS計費值</th><th style="text-align:center">狀態</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
+          <thead><tr><th>欄位</th><th>系統存儲值</th><th>HIS計費值</th><th style="text-align:center">狀態</th></tr></thead>
+          <tbody>${compRows}</tbody>
         </table>
-      </div>`;
+      </div>
+      ${selfPayHtml}`;
 
     showModal('billing-diff-modal',
       `核對詳情 — ${c.case_no}`,
       html,
       [
         { label: '關閉',    cls: 'btn-outline', action: 'close' },
-        ...(r.diffs.length > 0 ? [{ label: '套用HIS資料', cls: 'btn-primary', action: `apply-his:${caseId}` }] : []),
+        ...(r.diffs?.length ? [{ label: '套用HIS資料', cls: 'btn-primary', action: `apply-his:${caseId}` }] : []),
       ]
     );
 
@@ -733,50 +729,23 @@ const Billing = (() => {
   }
 
   // ========================
-  // APPLY HIS DATA TO CASE
+  // APPLY HIS DATA
   // ========================
   async function applyHISData(caseId) {
     const c = _cases.find(x => x.id === caseId);
     const r = _results[caseId];
-    if (!c || !r || r.status !== 'ok') return;
+    if (!c || r?.status !== 'ok') return;
 
     const hisData = r.hisData;
-    const fieldMap = {
-      method:        hisData.anesthesia_type,
-      duration:      hisData.duration_min,
-      bonus:         hisData.bonus_type,
-      handover:      hisData.handover_ratio,
-      GVL_AWS_MAC:   hisData.GVL_AWS_MAC,
-      Rusch_Video:   hisData.Rusch_Video,
-      OMT:           hisData.OMT,
-      A_line:        hisData.A_line,
-      CVC:           hisData.CVC,
-      PAC:           hisData.PAC,
-      TEE:           hisData.TEE,
-      CO:            hisData.CO,
-      Optiflow:      hisData.Optiflow,
-      BIS_self:      hisData.BIS_self,
-      BIS_NHI_adult: hisData.BIS_NHI_adult,
-      BIS_NHI_child: hisData.BIS_NHI_child,
-      blanket:       hisData.blanket,
-      IVPCA:         hisData.IVPCA,
-      NBPCA:         hisData.NBPCA,
-      PCEA:          hisData.PCEA,
-      PCA_days:      hisData.PCA_days,
-      IV_sedation:   hisData.IV_sedation,
-      ultrasound:    hisData.ultrasound,
-      ByBIS:         hisData.ByBIS,
-    };
-
-    for (const [key, val] of Object.entries(fieldMap)) {
-      if (val !== undefined && val !== null) c[key] = val;
-    }
+    // Only apply the fields the HIS API actually returns
+    if (hisData.method    !== undefined) c.method   = hisData.method;
+    if (hisData.total_time !== undefined) c.duration = hisData.total_time;
 
     c.total_performance = Calculator.calculateTotal(c, _pointSettings);
 
-    const month = c.date.slice(0, 7);
+    const month    = c.date.slice(0, 7);
     const allCases = await db.getCases(month);
-    const idx = allCases.findIndex(x => x.id === c.id);
+    const idx      = allCases.findIndex(x => x.id === c.id);
     if (idx >= 0) allCases[idx] = c;
     await db.saveCases(month, allCases);
 
@@ -788,8 +757,6 @@ const Billing = (() => {
   // ========================
   // HELPERS
   // ========================
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
   function escHtml(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
