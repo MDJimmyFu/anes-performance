@@ -246,8 +246,8 @@ const Config = (() => {
     document.getElementById('content').innerHTML = `
       <div class="flex items-center justify-between mb-6">
         <div>
-          <h2 style="font-size:20px;font-weight:700">系統設定</h2>
-          <p class="text-muted text-sm mt-2">設定 GitHub 儲存庫連線</p>
+          <h2 class="page-title">系統設定</h2>
+          <p class="page-subtitle">設定 GitHub 儲存庫連線</p>
         </div>
       </div>
 

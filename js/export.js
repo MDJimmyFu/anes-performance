@@ -11,10 +11,10 @@ const Export = (() => {
     const today    = now.toISOString().substring(0, 10);
 
     document.getElementById('content').innerHTML = `
-      <div class="flex items-center justify-between mb-6">
+      <div class="page-header flex items-center justify-between">
         <div>
-          <h2 style="font-size:20px;font-weight:700">資料匯出</h2>
-          <p class="text-muted text-sm mt-2">選擇匯出範圍與格式</p>
+          <h2 class="page-title">資料匯出</h2>
+          <p class="page-subtitle">選擇匯出範圍與格式</p>
         </div>
       </div>
 

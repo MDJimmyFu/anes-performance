@@ -9,10 +9,10 @@ const PointSettings = (() => {
 
   async function init() {
     document.getElementById('content').innerHTML = `
-      <div class="flex items-center justify-between mb-6">
+      <div class="page-header flex items-center justify-between">
         <div>
-          <h2 style="font-size:20px;font-weight:700">點數設定</h2>
-          <p class="text-muted text-sm mt-2">管理各期間的績效點數設定</p>
+          <h2 class="page-title">點數設定</h2>
+          <p class="page-subtitle">管理各期間的績效點數設定</p>
         </div>
         <button class="btn btn-primary" id="btn-add-period">
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>

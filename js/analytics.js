@@ -8,10 +8,10 @@ const Analytics = (() => {
 
   async function init() {
     document.getElementById('content').innerHTML = `
-      <div class="flex items-center justify-between mb-6">
+      <div class="page-header flex items-center justify-between">
         <div>
-          <h2 style="font-size:20px;font-weight:700">統計分析</h2>
-          <p class="text-muted text-sm mt-2">近12個月資料分析</p>
+          <h2 class="page-title">統計分析</h2>
+          <p class="page-subtitle">近12個月資料分析</p>
         </div>
         <div class="flex gap-2">
           <select class="form-select" id="analytics-months" style="width:120px">
@@ -91,7 +91,7 @@ const Analytics = (() => {
     }
     const methods = [...methodsSet].sort();
 
-    const colors = ['#1D4ED8','#15803D','#B45309','#DC2626','#7C3AED','#0891B2','#BE185D','#D97706','#059669','#6D28D9','#2563EB','#16A34A','#CA8A04'];
+    const colors = ['#3FB950','#388BFD','#D29922','#A371F7','#39D353','#F778BA','#E3B341','#DA3633','#58A6FF','#BC8CFF','#2EA043','#1F6FEB','#BB8009'];
 
     const datasets = methods.map((m, i) => ({
       label: m,
@@ -110,10 +110,12 @@ const Analytics = (() => {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: 'top', labels: { font: { size: 10 }, padding: 6 } } },
+        plugins: {
+          legend: { position: 'top', labels: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E', padding: 6 } }
+        },
         scales: {
-          x: { stacked: true, ticks: { font: { size: 10 } } },
-          y: { stacked: true, ticks: { font: { size: 10 } } }
+          x: { stacked: true, grid: { color: '#30363D' }, ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } },
+          y: { stacked: true, grid: { color: '#30363D' }, ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } }
         }
       }
     });
@@ -147,17 +149,19 @@ const Analytics = (() => {
       data: {
         labels,
         datasets: [
-          { label: '健保', data: nhiData, backgroundColor: '#1D4ED8', stack: 'perf' },
-          { label: '自費', data: spData,  backgroundColor: '#15803D', stack: 'perf' },
+          { label: '健保', data: nhiData, backgroundColor: 'rgba(56,139,253,0.7)', stack: 'perf' },
+          { label: '自費', data: spData,  backgroundColor: 'rgba(63,185,80,0.7)',  stack: 'perf' },
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
+        plugins: {
+          legend: { position: 'top', labels: { font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } }
+        },
         scales: {
-          x: { stacked: true, ticks: { font: { size: 10 } } },
-          y: { stacked: true, ticks: { font: { size: 10 } } }
+          x: { stacked: true, grid: { color: '#30363D' }, ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } },
+          y: { stacked: true, grid: { color: '#30363D' }, ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } }
         }
       }
     });
@@ -194,10 +198,11 @@ const Analytics = (() => {
         datasets: [{
           label: '使用次數',
           data: chartData,
-          backgroundColor: 'rgba(29,78,216,0.7)',
-          borderColor: '#1D4ED8',
+          backgroundColor: 'rgba(56,139,253,0.35)',
+          borderColor: '#388BFD',
           borderWidth: 1,
-          borderRadius: 4,
+          borderRadius: 3,
+          hoverBackgroundColor: 'rgba(56,139,253,0.6)',
         }]
       },
       options: {
@@ -206,8 +211,8 @@ const Analytics = (() => {
         indexAxis: 'y',
         plugins: { legend: { display: false } },
         scales: {
-          x: { ticks: { font: { size: 10 } } },
-          y: { ticks: { font: { size: 10 } } }
+          x: { grid: { color: '#30363D' }, ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } },
+          y: { grid: { color: 'transparent' }, ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } }
         }
       }
     });
@@ -230,7 +235,7 @@ const Analytics = (() => {
     const moLabels = ['01','02','03','04','05','06','07','08','09','10','11','12'];
     const moDisplay = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
     const years = Object.keys(byYear).sort();
-    const colors = ['#1D4ED8','#DC2626','#15803D','#B45309','#7C3AED'];
+    const colors = ['#3FB950','#388BFD','#D29922','#A371F7','#F778BA'];
 
     const datasets = years.map((y, i) => ({
       label: y + '年',
@@ -248,10 +253,12 @@ const Analytics = (() => {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
+        plugins: {
+          legend: { position: 'top', labels: { font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } }
+        },
         scales: {
-          x: { ticks: { font: { size: 10 } } },
-          y: { ticks: { font: { size: 10 } } }
+          x: { grid: { color: '#30363D' }, ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } },
+          y: { grid: { color: '#30363D' }, ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E' } }
         }
       }
     });

@@ -3,6 +3,37 @@
  * Dashboard page: KPI cards + charts
  */
 
+// ========================
+// CHART THEME DEFAULTS
+// ========================
+Chart.defaults.color = '#8B949E';
+Chart.defaults.borderColor = '#30363D';
+Chart.defaults.font.family = "'JetBrains Mono', monospace";
+
+// ========================
+// COUNT-UP ANIMATION
+// ========================
+function animateValue(el, from, to, duration = 800) {
+  if (!el) return;
+  const isFloat = String(to).includes('.');
+  const start = performance.now();
+  const update = (time) => {
+    const elapsed = time - start;
+    const progress = Math.min(elapsed / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+    const current = from + (to - from) * eased;
+    el.textContent = isFloat
+      ? current.toLocaleString('zh-TW', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+      : formatNum(current);
+    if (progress < 1) requestAnimationFrame(update);
+  };
+  requestAnimationFrame(update);
+}
+
+function formatNum(n) {
+  return Number(n).toLocaleString('zh-TW', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
 const Dashboard = (() => {
   let trendChart = null;
   let methodChart = null;
@@ -39,7 +70,7 @@ const Dashboard = (() => {
   function renderSkeleton() {
     document.getElementById('content').innerHTML = `
       <div class="loading-overlay">
-        <div class="spinner"></div>
+        <div class="dot-pulse"><span></span><span></span><span></span></div>
         <span>載入資料中...</span>
       </div>`;
   }
@@ -70,10 +101,10 @@ const Dashboard = (() => {
     const monthLabel = `${y}年${parseInt(m)}月`;
 
     document.getElementById('content').innerHTML = `
-      <div class="flex items-center justify-between mb-6">
+      <div class="page-header flex items-center justify-between">
         <div>
-          <h2 style="font-size:20px;font-weight:700;color:var(--text-primary)">${monthLabel} 績效儀表板</h2>
-          <p class="text-muted text-sm mt-2">共 ${cases.length} 筆記錄</p>
+          <h2 class="page-title">${monthLabel} 績效儀表板</h2>
+          <p class="page-subtitle">共 ${cases.length} 筆記錄</p>
         </div>
       </div>
 
@@ -104,22 +135,45 @@ const Dashboard = (() => {
 
     const kpiGrid = document.getElementById('kpi-grid');
     kpiGrid.innerHTML = `
-      ${kpiCard('刀量', stats.count + ' 刀', '', 'primary')}
-      ${kpiCard('總績效點數', fmt(stats.totalPoints), '含加成＋附加', 'success')}
-      ${kpiCard('自費點數', fmt(stats.totalSelfPay), '自費項目小計', '')}
-      ${kpiCard('工作天數', stats.daysWorked + ' 天', '', '')}
-      ${kpiCard('平均日績效', fmt(stats.avgDaily), '點/工作日', 'warning')}
-      ${kpiCard('平均刀績效', fmt(stats.avgPerCase), '點/刀', '')}
-      ${kpiCard('自費佔比', (stats.selfPayRatio * 100).toFixed(1) + '%', '自費/總績效', '')}
+      ${kpiCard('刀量',     stats.count,              '刀', 'primary')}
+      ${kpiCard('總績效點數', stats.totalPoints,         '含加成＋附加', 'success')}
+      ${kpiCard('自費點數',  stats.totalSelfPay,        '自費項目小計', '')}
+      ${kpiCard('工作天數',  stats.daysWorked,          '天', '')}
+      ${kpiCard('平均日績效', stats.avgDaily,            '點/工作日', 'warning')}
+      ${kpiCard('平均刀績效', stats.avgPerCase,          '點/刀', '')}
+      ${kpiCard('自費佔比',  stats.selfPayRatio * 100,  '%', '')}
     `;
+
+    // Trigger countUp animations after DOM render
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.kpi-value[data-target]').forEach(el => {
+        const target = parseFloat(el.dataset.target);
+        animateValue(el, 0, target);
+      });
+    });
   }
 
-  function kpiCard(label, value, sub, cls) {
+  function kpiCard(label, rawValue, sub, cls) {
+    // Store raw numeric value for countUp; display placeholder
+    const isPercent = sub === '%';
+    const isDays    = sub === '天';
+    const isKnife   = sub === '刀';
+    let displaySub  = sub;
+    if (isPercent) displaySub = '自費/總績效';
+    if (isDays)    displaySub = '';
+    if (isKnife)   displaySub = '';
+
+    const formatted = isPercent
+      ? rawValue.toFixed(1) + '%'
+      : (isDays || isKnife)
+        ? Math.round(rawValue) + (isDays ? ' 天' : ' 刀')
+        : fmt(rawValue);
+
     return `
       <div class="kpi-card">
         <div class="kpi-label">${label}</div>
-        <div class="kpi-value ${cls}">${value}</div>
-        ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
+        <div class="kpi-value ${cls}" data-target="${rawValue}">${formatted}</div>
+        ${displaySub ? `<div class="kpi-sub">${displaySub}</div>` : ''}
       </div>`;
   }
 
@@ -152,31 +206,48 @@ const Dashboard = (() => {
           {
             label: '總績效',
             data: totals,
-            borderColor: '#1D4ED8',
-            backgroundColor: 'rgba(29,78,216,0.08)',
-            tension: 0.3,
+            borderColor: '#3FB950',
+            backgroundColor: 'rgba(63,185,80,0.08)',
+            tension: 0.35,
             fill: true,
-            pointRadius: 4,
+            pointRadius: 3,
+            pointBackgroundColor: '#3FB950',
+            pointBorderColor: '#0D1117',
+            pointBorderWidth: 1.5,
+            borderWidth: 2,
           },
           {
             label: '自費',
             data: selfPays,
-            borderColor: '#15803D',
-            backgroundColor: 'rgba(21,128,61,0.08)',
-            tension: 0.3,
+            borderColor: '#388BFD',
+            backgroundColor: 'rgba(56,139,253,0.05)',
+            tension: 0.35,
             fill: false,
-            pointRadius: 3,
+            pointRadius: 2,
+            pointBackgroundColor: '#388BFD',
             borderDash: [4, 4],
+            borderWidth: 1.5,
           }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#8B949E', padding: 16 }
+          }
+        },
         scales: {
-          y: { ticks: { font: { size: 11 } } },
-          x: { ticks: { font: { size: 11 } } }
+          y: {
+            grid: { color: '#30363D' },
+            ticks: { font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#8B949E' }
+          },
+          x: {
+            grid: { color: '#30363D' },
+            ticks: { font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#8B949E' }
+          }
         }
       }
     });
@@ -193,9 +264,9 @@ const Dashboard = (() => {
     const labels = Object.keys(counts);
     const data = labels.map(k => counts[k]);
     const colors = [
-      '#1D4ED8','#15803D','#B45309','#DC2626','#7C3AED',
-      '#0891B2','#BE185D','#D97706','#059669','#6D28D9',
-      '#2563EB','#16A34A','#CA8A04','#EF4444','#8B5CF6',
+      '#3FB950','#388BFD','#D29922','#A371F7','#39D353',
+      '#F778BA','#E3B341','#DA3633','#58A6FF','#BC8CFF',
+      '#2EA043','#1F6FEB','#BB8009','#CF222E','#8957E5',
     ];
 
     if (methodChart) methodChart.destroy();
@@ -207,15 +278,24 @@ const Dashboard = (() => {
           data,
           backgroundColor: colors.slice(0, labels.length),
           borderWidth: 2,
-          borderColor: '#fff',
+          borderColor: '#161B22',
+          hoverOffset: 6,
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'right', labels: { font: { size: 11 }, padding: 8 } },
+          legend: {
+            position: 'right',
+            labels: { font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#8B949E', padding: 10 }
+          },
           tooltip: {
+            backgroundColor: '#21262D',
+            borderColor: '#30363D',
+            borderWidth: 1,
+            titleColor: '#E6EDF3',
+            bodyColor: '#8B949E',
             callbacks: {
               label: ctx => ` ${ctx.label}: ${ctx.parsed} 刀 (${((ctx.parsed / cases.length) * 100).toFixed(1)}%)`
             }
@@ -250,19 +330,35 @@ const Dashboard = (() => {
         datasets: [{
           label: '日績效',
           data: values,
-          backgroundColor: 'rgba(29,78,216,0.6)',
-          borderColor: '#1D4ED8',
+          backgroundColor: 'rgba(63,185,80,0.25)',
+          borderColor: '#3FB950',
           borderWidth: 1,
-          borderRadius: 4,
+          borderRadius: 3,
+          hoverBackgroundColor: 'rgba(63,185,80,0.5)',
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#21262D',
+            borderColor: '#30363D',
+            borderWidth: 1,
+            titleColor: '#E6EDF3',
+            bodyColor: '#8B949E',
+          }
+        },
         scales: {
-          y: { ticks: { font: { size: 10 } } },
-          x: { ticks: { font: { size: 10 }, maxRotation: 45 } }
+          y: {
+            grid: { color: '#30363D' },
+            ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E' }
+          },
+          x: {
+            grid: { color: 'transparent' },
+            ticks: { font: { size: 10, family: "'JetBrains Mono', monospace" }, color: '#8B949E', maxRotation: 45 }
+          }
         }
       }
     });

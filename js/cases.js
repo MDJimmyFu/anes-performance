@@ -3,6 +3,31 @@
  * Case list page and add/edit case page.
  */
 
+// ========================
+// METHOD BADGE HELPER
+// ========================
+function methodBadge(method) {
+  const colors = {
+    'GE':          'badge-teal',
+    'GM':          'badge-blue',
+    'EA':          'badge-amber',
+    'SA':          'badge-purple',
+    'IV':          'badge-muted',
+    'Painless':    'badge-pink',
+    'Painless夜間': 'badge-pink',
+    'HMC':         'badge-gray',
+    'C/G':         'badge-gray',
+    'C+G':         'badge-gray',
+    'C':           'badge-gray',
+    'G':           'badge-gray',
+    'ERCP':        'badge-orange',
+    'EUS':         'badge-orange',
+    '傳染GE':       'badge-red',
+    '困難氣道GE':    'badge-red',
+  };
+  return `<span class="badge ${colors[method] || 'badge-gray'}">${method}</span>`;
+}
+
 const Cases = (() => {
   const PAGE_SIZE = 50;
   let _allCases = [];
@@ -19,10 +44,10 @@ const Cases = (() => {
   async function initList() {
     _currentYM = AppState.selectedMonth;
     document.getElementById('content').innerHTML = `
-      <div class="flex items-center justify-between mb-6">
+      <div class="page-header flex items-center justify-between">
         <div>
-          <h2 style="font-size:20px;font-weight:700">病例列表</h2>
-          <p class="text-muted text-sm mt-2" id="cases-subtitle">載入中...</p>
+          <h2 class="page-title">病例列表</h2>
+          <p class="page-subtitle" id="cases-subtitle">載入中...</p>
         </div>
         <div class="flex gap-2">
           <button class="btn btn-outline btn-sm" id="btn-import-csv">
@@ -146,22 +171,22 @@ const Cases = (() => {
       const extras = getExtrasSummary(c);
       return `
         <tr>
-          <td>${c.date || ''}</td>
-          <td style="font-family:monospace;font-size:12px">${c.case_no || ''}</td>
+          <td class="mono">${c.date || ''}</td>
+          <td class="mono">${c.case_no || ''}</td>
           <td class="truncate" style="max-width:180px" title="${c.diagnosis || ''}">${c.diagnosis || ''}</td>
           <td><span class="badge badge-blue">${c.asa || ''}</span></td>
           <td><span class="badge badge-gray">${c.bonus || '無'}</span></td>
-          <td><span class="badge badge-purple">${c.method || ''}</span></td>
-          <td class="text-right">${c.duration || 0}</td>
-          <td class="text-right font-bold text-primary-color">${pts.toLocaleString('zh-TW', {maximumFractionDigits:2})}</td>
-          <td class="text-right">${c.handover ?? 1}</td>
+          <td>${methodBadge(c.method || '')}</td>
+          <td class="text-right mono">${c.duration || 0}</td>
+          <td class="text-right mono" style="color:var(--accent);font-weight:700">${pts.toLocaleString('zh-TW', {maximumFractionDigits:2})}</td>
+          <td class="text-right mono">${c.handover ?? 1}</td>
           <td><div class="extras-tags">${extras}</div></td>
           <td>
             <div class="flex gap-2">
               <button class="btn btn-ghost btn-icon btn-sm" onclick="Cases.openAddEditModal('${c.id}')" title="編輯">
                 <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
               </button>
-              <button class="btn btn-ghost btn-icon btn-sm" style="color:var(--danger)" onclick="Cases.deleteCase('${c.id}')" title="刪除">
+              <button class="btn btn-ghost btn-icon btn-sm" style="color:var(--red)" onclick="Cases.deleteCase('${c.id}')" title="刪除">
                 <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
               </button>
             </div>
