@@ -60,7 +60,7 @@ const PointSettings = (() => {
           <div>
             <div class="section-title">麻醉方式基礎點數</div>
             <table style="font-size:12px;width:100%">
-              <thead><tr><th>方式</th><th class="text-right">基礎</th><th class="text-right">加班(≤4h)/30min</th><th class="text-right">加班(>4h)/30min</th></tr></thead>
+              <thead><tr><th>方式</th><th class="text-right">基礎</th><th class="text-right">加時費(2-4h)/30min</th><th class="text-right">加時費(>4h)/30min</th></tr></thead>
               <tbody>
                 ${Object.entries(p.methods || {}).map(([method, m]) => `
                   <tr>
@@ -127,7 +127,7 @@ const PointSettings = (() => {
       <div class="section-title">麻醉方式</div>
       <div class="table-wrap mb-4" style="max-height:260px;overflow-y:auto">
         <table>
-          <thead><tr><th>方式</th><th>基礎點數</th><th>加班(≤4h)/30min</th><th>加班(>4h)/30min</th><th>有加班</th></tr></thead>
+          <thead><tr><th>方式</th><th>基礎點數</th><th>加時費(2-4h)/30min</th><th>加時費(>4h)/30min</th><th>有加時費</th></tr></thead>
           <tbody>
             ${methods.map(m => `
               <tr>

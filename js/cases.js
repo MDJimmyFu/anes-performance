@@ -3,6 +3,15 @@
  * Case list page and add/edit case page.
  */
 
+// HTML-escape helper — prevents <6mo and similar values breaking innerHTML
+function escHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 // ========================
 // METHOD BADGE HELPER
 // ========================
@@ -25,7 +34,17 @@ function methodBadge(method) {
     '傳染GE':       'badge-red',
     '困難氣道GE':    'badge-red',
   };
-  return `<span class="badge ${colors[method] || 'badge-gray'}">${method}</span>`;
+  return `<span class="badge ${colors[method] || 'badge-gray'}">${escHtml(method)}</span>`;
+}
+
+function bonusBadgeClass(bonus) {
+  if (!bonus || bonus === '無') return 'badge-gray';
+  if (['心臟手術','腦部手術'].includes(bonus)) return 'badge-red';
+  if (['休克','急診'].includes(bonus)) return 'badge-amber';
+  if (['器官移植'].includes(bonus)) return 'badge-purple';
+  if (['<6mo','6mo-2yo','2yo-7yo'].includes(bonus)) return 'badge-teal';
+  if (['自費麻醉','醫美'].includes(bonus)) return 'badge-orange';
+  return 'badge-gray';
 }
 
 const Cases = (() => {
@@ -175,7 +194,7 @@ const Cases = (() => {
           <td class="mono">${c.case_no || ''}</td>
           <td class="truncate" style="max-width:180px" title="${c.diagnosis || ''}">${c.diagnosis || ''}</td>
           <td><span class="badge badge-blue">${c.asa || ''}</span></td>
-          <td><span class="badge badge-gray">${c.bonus || '無'}</span></td>
+          <td><span class="badge ${bonusBadgeClass(c.bonus)}">${escHtml(c.bonus || '無')}</span></td>
           <td>${methodBadge(c.method || '')}</td>
           <td class="text-right mono">${c.duration || 0}</td>
           <td class="text-right mono" style="color:var(--accent);font-weight:700">${pts.toLocaleString('zh-TW', {maximumFractionDigits:2})}</td>
@@ -363,7 +382,7 @@ const Cases = (() => {
         ${Calculator.EXTRAS_META.filter(e => e.type === 'check').map(e => `
           <label class="checkbox-item">
             <input type="checkbox" id="f-${e.key}" value="1">
-            <span>${e.label}${e.selfPay ? ' <span style="color:var(--danger);font-size:9px">自費</span>' : ''}</span>
+            <span>${e.label}</span>
           </label>`).join('')}
       </div>
 
