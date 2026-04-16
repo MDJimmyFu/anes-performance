@@ -14,6 +14,14 @@ const Billing = (() => {
   const API_ENDPOINT     = `${HIS_BASE}/api/batch_anesthesia_billing`;
   const SESSION_KEY      = 'his_logged_in';
   const USERNAME_KEY     = 'his_username';
+  const ANES_ON_HIS_URL  = `${HIS_BASE}/anes/`;   // frontend served from Flask server
+
+  // True when this page is itself served from the HIS server (same-origin, no mixed content)
+  const _sameOrigin = window.location.origin === HIS_BASE;
+  // True when HTTPS page tries to call HTTP server → browser will block
+  const _mixedContent = !_sameOrigin &&
+                        window.location.protocol === 'https:' &&
+                        HIS_BASE.startsWith('http:');
 
   // Fields we can meaningfully compare with the HIS response.
   // hisKey matches the keys returned by /api/batch_anesthesia_billing.
@@ -55,11 +63,69 @@ const Billing = (() => {
         <div id="billing-body"></div>
       </div>`;
 
-    if (!isLoggedIn()) {
+    if (_mixedContent) {
+      renderMixedContentNotice();
+    } else if (!isLoggedIn()) {
       renderLoginForm();
     } else {
       await showBillingContent();
     }
+  }
+
+  // ========================
+  // MIXED CONTENT NOTICE
+  // ========================
+  function renderMixedContentNotice() {
+    const topbar = document.getElementById('topbar-actions');
+    if (topbar) topbar.innerHTML = '';
+
+    document.getElementById('billing-body').innerHTML = `
+      <div style="display:flex;justify-content:center;align-items:flex-start;padding-top:40px">
+        <div class="card" style="width:100%;max-width:520px;padding:32px">
+          <div style="text-align:center;margin-bottom:24px">
+            <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"
+                 style="width:48px;height:48px;margin:0 auto 12px;display:block">
+              <rect width="40" height="40" rx="10" fill="rgba(210,153,34,0.12)"/>
+              <path d="M20 8l-14 24h28L20 8zm0 4l11 19H9L20 12zm-1 7v5h2v-5h-2zm0 7v2h2v-2h-2z"
+                    fill="#d2991f"/>
+            </svg>
+            <div style="font-family:var(--font-serif);font-size:18px;color:var(--text-primary);margin-bottom:6px">需從院內伺服器開啟</div>
+            <div style="font-size:13px;color:var(--text-muted);line-height:1.6">
+              瀏覽器安全政策禁止 HTTPS 頁面（GitHub Pages）<br>直接連線至院內 HTTP 伺服器
+            </div>
+          </div>
+
+          <div class="notice notice-warning" style="margin-bottom:20px;font-size:13px;line-height:1.7">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18" style="flex-shrink:0;margin-top:1px">
+              <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>
+            <div>
+              您目前使用 <strong>GitHub Pages（HTTPS）</strong> 瀏覽此頁面。<br>
+              HIS 計費核對功能需在院內以 <strong>HTTP</strong> 方式開啟，才能連線至院內伺服器。
+            </div>
+          </div>
+
+          <div style="background:var(--bg-elevated);border-radius:8px;padding:16px;margin-bottom:20px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-weight:500;letter-spacing:.04em;text-transform:uppercase">在院內請改用此網址</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <code style="font-family:var(--font-mono);font-size:13px;color:var(--accent);flex:1;word-break:break-all">${escHtml(ANES_ON_HIS_URL)}</code>
+              <button class="btn btn-outline btn-sm" onclick="navigator.clipboard.writeText('${escHtml(ANES_ON_HIS_URL)}').then(()=>showToast('已複製','success'))">
+                複製
+              </button>
+            </div>
+          </div>
+
+          <div style="font-size:12px;color:var(--text-muted);line-height:1.8">
+            <div style="margin-bottom:4px;font-weight:500;color:var(--text-secondary)">操作步驟</div>
+            <div>① 確認已連線至醫院 Wi-Fi 或插上院內網路線</div>
+            <div>② 複製上方網址，貼到瀏覽器網址列</div>
+            <div>③ 開啟後點選「HIS 計費核對」即可登入</div>
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle)">
+              其他功能（儀表板、病例列表、統計）在 GitHub Pages 上仍可正常使用。
+            </div>
+          </div>
+        </div>
+      </div>`;
   }
 
   // ========================
