@@ -1,0 +1,8 @@
+# Runtime config generated from GitHub Secrets — never commit
+data/runtime_config.json
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/

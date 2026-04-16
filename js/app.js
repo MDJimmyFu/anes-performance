@@ -404,7 +404,10 @@ function showSetupModal() {
 // ========================
 // INIT
 // ========================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Load PAT from deploy-time runtime config (GitHub Secrets) before anything else
+  await db.loadRuntimeConfig();
+
   initNavigation();
   initMonthSelector();
 

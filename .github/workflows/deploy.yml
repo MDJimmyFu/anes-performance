@@ -24,6 +24,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Generate runtime config from secrets
+        run: |
+          mkdir -p data
+          echo '{"gh_pat":"${{ secrets.GH_PAT_TOKEN }}"}' > data/runtime_config.json
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
