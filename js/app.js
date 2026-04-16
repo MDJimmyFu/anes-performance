@@ -27,7 +27,6 @@ const Router = (() => {
     '#analytics':  { title: '統計分析', init: () => Analytics.init() },
     '#export':     { title: '資料匯出', init: () => Export.init() },
     '#settings':   { title: '點數設定', init: () => PointSettings.init() },
-    '#billing':    { title: 'HIS 計費核對', init: () => Billing.init() },
     '#config':     { title: '系統設定', init: () => Config.init() },
   };
 
